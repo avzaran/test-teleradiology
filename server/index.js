@@ -26,6 +26,7 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 const users = {};
+const doctorPassword = 'doctor';
 
 app.post('/api/register', (req, res) => {
   const { username, password } = req.body;
@@ -45,6 +46,14 @@ app.post('/api/login', (req, res) => {
   res.json({ message: 'logged in' });
 });
 
+app.post('/api/doctor/login', (req, res) => {
+  const { password } = req.body;
+  if (password !== doctorPassword) {
+    return res.status(401).json({ message: 'Invalid credentials' });
+  }
+  res.json({ message: 'logged in' });
+});
+
 app.post('/api/upload', upload.single('file'), (req, res) => {
   const { username } = req.body;
   if (!users[username]) {
@@ -54,7 +63,8 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
     id: Date.now().toString(),
     file: req.file.filename,
     status: 'uploaded',
-    doctorNotes: ''
+    doctorNotes: '',
+    username
   };
   users[username].requests.push(request);
   res.json({ request });
@@ -69,19 +79,34 @@ app.get('/api/requests', (req, res) => {
   res.json(user.requests);
 });
 
+app.get('/api/allrequests', (req, res) => {
+  const all = [];
+  Object.keys(users).forEach(u => {
+    users[u].requests.forEach(r => all.push({ ...r }));
+  });
+  res.json(all);
+});
+
 app.post('/api/requests/:id/complete', (req, res) => {
   const { username, notes } = req.body;
-  const user = users[username];
-  if (!user) {
-    return res.status(401).json({ message: 'Unknown user' });
+  let found;
+  if (username && users[username]) {
+    found = users[username].requests.find(r => r.id === req.params.id);
+    if (found) {
+      found.status = 'completed';
+      found.doctorNotes = notes;
+      return res.json({ request: found });
+    }
   }
-  const request = user.requests.find(r => r.id === req.params.id);
-  if (!request) {
-    return res.status(404).json({ message: 'Request not found' });
+  for (const u of Object.keys(users)) {
+    const r = users[u].requests.find(r => r.id === req.params.id);
+    if (r) {
+      r.status = 'completed';
+      r.doctorNotes = notes;
+      return res.json({ request: r });
+    }
   }
-  request.status = 'completed';
-  request.doctorNotes = notes;
-  res.json({ request });
+  res.status(404).json({ message: 'Request not found' });
 });
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
