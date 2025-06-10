@@ -1,8 +1,9 @@
-const express = require('express');
-const cors = require('cors');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
+const express = require("express");
+const cors = require("cors");
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs");
+const data = require("./data");
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -11,106 +12,131 @@ app.use(cors());
 app.use(express.json());
 
 const storage = multer.diskStorage({
-  destination: function(req, file, cb) {
-    const dest = path.join(__dirname, 'uploads');
+  destination: function (req, file, cb) {
+    const dest = path.join(__dirname, "uploads");
     if (!fs.existsSync(dest)) {
       fs.mkdirSync(dest);
     }
     cb(null, dest);
   },
-  filename: function(req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + '-' + file.originalname);
-  }
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, uniqueSuffix + "-" + file.originalname);
+  },
 });
 const upload = multer({ storage });
 
-const users = {};
-const doctorPassword = 'doctor';
-
-app.post('/api/register', (req, res) => {
+app.post("/api/register", (req, res) => {
   const { username, password } = req.body;
-  if (users[username]) {
-    return res.status(400).json({ message: 'User already exists' });
+
+  if (!username || !password) {
+    return res
+      .status(400)
+      .json({ message: "Username and password are required" });
   }
-  users[username] = { password, requests: [] };
-  res.json({ message: 'registered' });
+
+  if (data.createUser(username, password)) {
+    res.json({ message: "Registration successful" });
+  } else {
+    res.status(400).json({ message: "User already exists" });
+  }
 });
 
-app.post('/api/login', (req, res) => {
+app.post("/api/login", (req, res) => {
   const { username, password } = req.body;
-  const user = users[username];
-  if (!user || user.password !== password) {
-    return res.status(401).json({ message: 'Invalid credentials' });
+
+  if (!username || !password) {
+    return res
+      .status(400)
+      .json({ message: "Username and password are required" });
   }
-  res.json({ message: 'logged in' });
+
+  if (data.verifyUser(username, password)) {
+    res.json({ message: "Login successful" });
+  } else {
+    res.status(401).json({ message: "Invalid username or password" });
+  }
 });
 
-app.post('/api/doctor/login', (req, res) => {
+app.post("/api/doctor/login", (req, res) => {
   const { password } = req.body;
-  if (password !== doctorPassword) {
-    return res.status(401).json({ message: 'Invalid credentials' });
+
+  if (!password) {
+    return res.status(400).json({ message: "Password is required" });
   }
-  res.json({ message: 'logged in' });
+
+  if (data.verifyDoctor(password)) {
+    res.json({ message: "Login successful" });
+  } else {
+    res.status(401).json({ message: "Invalid password" });
+  }
 });
 
-app.post('/api/upload', upload.single('file'), (req, res) => {
+app.post("/api/upload", upload.single("file"), (req, res) => {
   const { username } = req.body;
-  if (!users[username]) {
-    return res.status(401).json({ message: 'Unknown user' });
+
+  if (!username) {
+    return res.status(400).json({ message: "Username is required" });
   }
+
+  if (!req.file) {
+    return res.status(400).json({ message: "No file uploaded" });
+  }
+
   const request = {
     id: Date.now().toString(),
     file: req.file.filename,
-    status: 'uploaded',
-    doctorNotes: '',
-    username
+    status: "uploaded",
+    doctorNotes: "",
+    username,
+    createdAt: new Date().toISOString(),
   };
-  users[username].requests.push(request);
-  res.json({ request });
+
+  if (data.addRequest(username, request)) {
+    res.json({ request });
+  } else {
+    res.status(401).json({ message: "Unknown user" });
+  }
 });
 
-app.get('/api/requests', (req, res) => {
+app.get("/api/requests", (req, res) => {
   const { username } = req.query;
-  const user = users[username];
-  if (!user) {
-    return res.status(401).json({ message: 'Unknown user' });
+
+  if (!username) {
+    return res.status(400).json({ message: "Username is required" });
   }
-  res.json(user.requests);
+
+  const requests = data.getUserRequests(username);
+  res.json(requests);
 });
 
-app.get('/api/allrequests', (req, res) => {
-  const all = [];
-  Object.keys(users).forEach(u => {
-    users[u].requests.forEach(r => all.push({ ...r }));
-  });
-  res.json(all);
+app.get("/api/allrequests", (req, res) => {
+  const requests = data.getAllRequests();
+  res.json(requests);
 });
 
-app.post('/api/requests/:id/complete', (req, res) => {
-  const { username, notes } = req.body;
-  let found;
-  if (username && users[username]) {
-    found = users[username].requests.find(r => r.id === req.params.id);
-    if (found) {
-      found.status = 'completed';
-      found.doctorNotes = notes;
-      return res.json({ request: found });
-    }
+app.post("/api/requests/:id/complete", (req, res) => {
+  const { notes } = req.body;
+  const requestId = req.params.id;
+
+  if (!notes) {
+    return res.status(400).json({ message: "Notes are required" });
   }
-  for (const u of Object.keys(users)) {
-    const r = users[u].requests.find(r => r.id === req.params.id);
-    if (r) {
-      r.status = 'completed';
-      r.doctorNotes = notes;
-      return res.json({ request: r });
-    }
+
+  const request = data.completeRequest(requestId, notes);
+  if (request) {
+    res.json({ request });
+  } else {
+    res.status(404).json({ message: "Request not found" });
   }
-  res.status(404).json({ message: 'Request not found' });
 });
 
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
+  console.log(
+    "Default doctor password:",
+    data.verifyDoctor("doctor123") ? "doctor123" : "changed"
+  );
 });
