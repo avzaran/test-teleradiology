@@ -24,3 +24,7 @@ This example project provides a simple demonstration of a patient portal for upl
    ```
 
 The React app will be available at `http://localhost:5173` and will communicate with the server on port `3001`.
+
+## Usage
+
+Open `http://localhost:5173` to access the home page. From there choose the patient or doctor portal. The doctor portal uses the password `doctor`.
